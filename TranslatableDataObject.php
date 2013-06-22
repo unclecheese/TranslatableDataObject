@@ -21,10 +21,10 @@
  *
  * ------------- _config.php ------------
  * <code>
- * TranslatableDataObject::set_locales(array(
- *	'en_GB',
- *	'fr_FR',
- *	'it_IT'
+ * TranslatableDataObject::set_langs(array(
+ *	'EN',
+ *	'FR',
+ *	'IT'
  * ));
  *
  * TranslatableDataObject::register('MyDataObject', array(
@@ -33,7 +33,7 @@
  * ));
  * </code>
  *
- * Always run /dev/build after adding new locales.
+ * Always run /dev/build after adding new langs.
  *
  *
  * ---------- MyDataObject::getCMSFields() -------------
@@ -76,12 +76,13 @@
  * @author Uncle Cheese <unclecheese@leftandmain.com>
  * 
  */
-class TranslatableDataObject extends Extension {
+class TranslatableDataObject extends DataExtension {
+
 
 	/**
-	 * @var array A list of all the locales that are registered as translations
+	 * @var array A list of all the languages that are registered as translations
 	 */
-	public static $locales = array();
+	public static $langs = array();
 	
 	
 	/**
@@ -89,45 +90,60 @@ class TranslatableDataObject extends Extension {
 	 * 			  associated $db arrays.
 	 */
 	protected static $translation_manifest = array ();
-	
-	
-	/**
-	 * Given a field name and a locale name, create a composite string to represent
-	 * the field in the database.
-	 *
-	 * @param string $field The field name
-	 * @param string $locale The locale name
-	 * @return string
-	 */
-	public static function i18n_field($field, $locale = null) {
-		if(!$locale) $locale = i18n::get_locale();
-		return "{$field}__{$locale}";
+
+
+
+
+	public static function init() {		
+		if($langs = Config::inst()->get("TranslatableDataObject","languages")) {
+			self::set_langs($langs);
+		}		
+
+		if($classes = Config::inst()->get("TranslatableDataObject", "classes")) {
+			foreach($classes as $class) {
+				self::register($class);
+			}
+		}
 	}
 	
 	
 	/**
-	 * Adds translatable locales
+	 * Given a field name and a lang code, create a composite string to represent
+	 * the field in the database.
 	 *
-	 * @param mixed A list of locales, either as an array or argument list 
+	 * @param string $field The field name
+	 * @param string $lang The lang code
+	 * @return string
 	 */
-	public static function set_locales() {
+	public static function i18n_field($field, $lang = null) {
+		if(!$lang) $lang = strtoupper(i18n::get_lang_from_locale(i18n::get_locale()));
+		return "{$field}__{$lang}";
+	}
+	
+	
+	/**
+	 * Adds translatable languages
+	 *
+	 * @param mixed A list of languages, either as an array or argument list 
+	 */
+	public static function set_langs() {
 		$args = func_get_args();
 		if(empty($args)) {
-			trigger_error("TranslatableDataObject::set_locales() called with no arguments.",E_USER_ERROR);
+			trigger_error("TranslatableDataObject::set_langs() called with no arguments.",E_USER_ERROR);
 		}
-		$locales = (isset($args[0]) && is_array($args[0])) ? $args[0] : $args;
-		foreach($locales as $l) {
-			if(!i18n::validate_locale($l)) {
-				trigger_error("TranslatableDataObject::set_locales() -- Locale '$l' is not a valid locale.", E_USER_ERROR);
+		$langs = (isset($args[0]) && is_array($args[0])) ? $args[0] : $args;		
+		foreach($langs as $l) {
+			if(!i18n::get_locale_from_lang($l)) {
+				trigger_error("TranslatableDataObject::set_langs() -- Languages '$l' is not a valid language.", E_USER_ERROR);
 			}
-			self::$locales[$l] = $l;
+			self::$langs[$l] = $l;
 		}		
 	}
 	
 	
 	
 	/**
-	 * Given a translatable field name, pull out the locale and 
+	 * Given a translatable field name, pull out the lang and 
 	 * return the raw field name.
 	 *
 	 * ex: "Description__fr_FR" -> "Description"
@@ -142,15 +158,16 @@ class TranslatableDataObject extends Extension {
 
 	/**
 	 * Given a translatable field name, pull out the raw field name and 
-	 * return the locale
+	 * return the lang
 	 *
-	 * ex: "Description__fr_FR" -> "fr_FR"
+	 * ex: "Description__FR" -> "FR"
 	 *
 	 * @param string $field The name of the translated field
 	 * @return string
 	 */
-	public function get_locale($field) {
-		return end(explode("__", $field));
+	public function get_lang($field) {
+		$parts = explode("__", $field);
+		return sizeof($parts) == 2 ? end($parts) : false;
 	}
 
 
@@ -162,17 +179,18 @@ class TranslatableDataObject extends Extension {
 	 * @param string $class The class to register as translatable
 	 * @param array $fields The list of fields to translate (must all exist in $db)
 	 */
-	public static function register($class, $fields = array()) {
+	public static function register($class, $fields = array ()) {		
 		self::$translation_manifest[$class] = array();
-		$SNG = singleton($class);
+		$SNG = Injector::inst()->get($class);		
 		foreach($fields as $f) {
 			if($type = $SNG->db($f)) {
-				foreach(self::$locales as $locale) {
-					self::$translation_manifest[$class][self::i18n_field($f, $locale)] = $type;
+				foreach(self::$langs as $lang) {
+					self::$translation_manifest[$class][self::i18n_field($f, $lang)] = $type;
 				}
 			}
-		}
-		Object::add_extension($class, 'TranslatableDataObject');	
+		}		
+		Object::add_extension($class, "TranslatableDataObject");		
+		
 	}
 	
 
@@ -183,7 +201,7 @@ class TranslatableDataObject extends Extension {
 	 *
 	 * @param string $class The class that is being decorated
 	 */
-	public function extraStatics($class) {
+	public function extraStatics($class = null, $extension = null) {		
 		return array (
 			'db' => self::$translation_manifest[$class]		
 		);
@@ -194,7 +212,7 @@ class TranslatableDataObject extends Extension {
 	/**
 	 * A template accessor used to get the translated version of a given field
 	 * 
-	 * ex: $T(Description) in the locale it_IT returns $yourClass->obj('Description__it_IT');
+	 * ex: $T(Description) in the lang IT returns $yourClass->obj('Description__IT');
 	 *
 	 * @param string $field The field name to translate
 	 * @return string
@@ -218,19 +236,22 @@ class TranslatableDataObject extends Extension {
 	 * </code>
 	 *
 	 * @param string $filter_name If provided, filter the translations by a given field name
-	 * @param string $filter_locale If provided, filter the translations by a given locale
+	 * @param string $filter_lang If provided, filter the translations by a given lang
 	 * @return array
 	 */
-	public function getTranslationFields($filter_name = null, $filter_locale = null) {
+	public function getTranslationFields($filter_name = null, $filter_lang = null, $fieldset = null) {
 		$fields = array ();
+		$default = Config::inst()->get("LangUtils","default_lang");
 		foreach(self::$translation_manifest[$this->owner->class] as $field => $type) {
-			if($filter_name && $filter_name != self::get_basename($field)) continue;
-			foreach(self::$locales as $locale) {
-				if($filter_locale && $filter_locale != $locale) continue;
-				if($o = $this->owner->obj($field)) {
-					$formField = $o->scaffoldFormField();
-					$fields[] = $formField;				
-				}
+			if(!self::get_lang($field)) continue;
+			if($filter_name && ($filter_name != self::get_basename($field))) continue;
+			if($filter_lang && ($filter_lang != self::get_lang($field))) continue;
+			if(self::get_lang($field) == $default) continue;
+			if($o = $this->owner->dbObject(self::get_basename($field))) {
+				$formField = $o->scaffoldFormField();
+				$formField->setName($field);
+				$formField->setTitle($formField->Title()." (".self::get_lang($field).")");
+				$fields[] = $formField;
 			}
 		}
 		return $fields;
@@ -238,3 +259,4 @@ class TranslatableDataObject extends Extension {
 	
 		
 }
+
