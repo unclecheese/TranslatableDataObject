@@ -152,7 +152,8 @@ class TranslatableDataObject extends DataExtension {
 	 * @return string
 	 */
 	public function get_basename($field) {
-		return reset(explode("__", $field));
+		$parts = explode("__", $field);
+		return reset($parts);
 	}
 
 
@@ -201,12 +202,12 @@ class TranslatableDataObject extends DataExtension {
 	 *
 	 * @param string $class The class that is being decorated
 	 */
-	public function extraStatics($class = null, $extension = null) {		
+	static function get_extra_config($class, $extensionClass, $args = null) {
 		return array (
-			'db' => self::$translation_manifest[$class]		
+			'db' => self::$translation_manifest[$class]
 		);
 	}
-	
+
 
 	
 	/**
